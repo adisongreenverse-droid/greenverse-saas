@@ -300,7 +300,7 @@ app.post('/api/enhance-prompt', async (req, res) => {
   
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const systemPrompt = `You are an expert prompt engineer for DALL-E/Midjourney. The user will give you a short idea in Hindi, Hinglish, or English (e.g. 'dtf printing ka poster'). Your job is to translate it to English and expand it into a highly detailed, professional, 50-70 word image generation prompt. Focus on visual elements, lighting, composition, and style. ALWAYS reply ONLY with the final English prompt, no extra chat. Ensure no humans/faces are in the prompt unless explicitly asked.`;
     
     const result = await model.generateContent(`${systemPrompt}\nUser request: ${prompt}`);
@@ -612,7 +612,7 @@ app.post('/api/generate', authenticateToken, upload.single('image'), async (req,
     const imageBuffer = fs.readFileSync(file.path);
     const imageBase64 = imageBuffer.toString('base64');
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = "You are a professional social media manager for a brand called 'Greenverse Adison DTF'. Look at this image and generate a catchy caption in a mix of Hindi and English (Hinglish/Bilingual) and 5-6 trending hashtags for a social media post (Facebook/Instagram). Format the response exactly like this:\nCaption: [Your caption here]\nHashtags: [Your hashtags here]";
 
     const result = await model.generateContent([
@@ -1051,7 +1051,7 @@ app.post('/api/campaign/generate', upload.single('image'), async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `You are an expert social media marketer for 'Greenverse Adison DTF'. 
 Generate a social media campaign based on:
 - Outfit Style: ${style || 'Trendy streetwear'}
@@ -1121,7 +1121,7 @@ app.post('/api/campaign/reel', async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `You are an expert Social Media Video Marketer for a DTF Printing apparel brand.
 The user wants a viral 15-second Instagram Reel / YouTube Shorts script based on:
 - Outfit / Post Style: "${style || 'Trending streetwear'}"
@@ -1312,7 +1312,7 @@ app.post('/api/ads/generate', async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `You are a world-class Facebook and Instagram Ad Specialist.
 The user runs this business: "${businessProfile || 'A general e-commerce business'}".
@@ -1365,7 +1365,7 @@ app.get('/api/market/trends', async (req, res) => {
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `You are a social media trend analyzer. Analyze current global trends for the niche: "${niche}".
 Respond with a JSON object strictly following this structure:
 {
