@@ -1388,8 +1388,9 @@ app.post('/api/webhook/facebook', async (req, res) => {
   const body = req.body;
   console.log("--- INCOMING WEBHOOK ---", JSON.stringify(body, null, 2));
 
-  // Verify this is an event from a page subscription
-  if (body.object === 'page') {
+  // Verify this is an event from a page or instagram subscription
+  if (body.object === 'page' || body.object === 'instagram') {
+    const isInstagram = body.object === 'instagram';
     // Return a '200 OK' response to all events to acknowledge receipt
     res.status(200).send('EVENT_RECEIVED');
 
@@ -1423,9 +1424,11 @@ app.post('/api/webhook/facebook', async (req, res) => {
           // 1. First check Rule Engine
           let replyMessage = null;
           for (const rule of tenantRules) {
-            // Check if rule applies to facebook or both
+            // Check if rule applies to facebook, instagram or both
             const rulePlatform = rule.platform ? rule.platform.toLowerCase() : 'both';
-            if (rulePlatform === 'facebook' || rulePlatform === 'both') {
+            const targetPlatform = isInstagram ? 'instagram' : 'facebook';
+            
+            if (rulePlatform === targetPlatform || rulePlatform === 'both') {
               if (receivedText.includes(rule.trigger.toLowerCase())) {
                 replyMessage = rule.reply;
                 console.log(`Rule matched for trigger: ${rule.trigger}`);
@@ -1472,12 +1475,15 @@ app.post('/api/webhook/facebook', async (req, res) => {
         }
       }
       
-      // Handle Comments (feed changes)
+      // Handle Comments (feed changes for FB, comments for IG)
       if (entry.changes) {
          const change = entry.changes[0];
-         if (change.field === 'feed' && change.value.item === 'comment' && change.value.verb === 'add') {
-             const commentText = change.value.message.toLowerCase();
-             const commentId = change.value.comment_id;
+         const isFbComment = change.field === 'feed' && change.value.item === 'comment' && change.value.verb === 'add';
+         const isIgComment = change.field === 'comments';
+         
+         if (isFbComment || isIgComment) {
+             const commentText = (change.value.message || change.value.text || '').toLowerCase();
+             const commentId = change.value.comment_id || change.value.id;
              console.log(`Received comment: ${commentText}`);
              
              // Fetch tenant rules from DB
@@ -1500,7 +1506,9 @@ app.post('/api/webhook/facebook', async (req, res) => {
              let replyMessage = null;
              for (const rule of tenantRules) {
                const rulePlatform = rule.platform ? rule.platform.toLowerCase() : 'both';
-               if (rulePlatform === 'facebook' || rulePlatform === 'both') {
+               const targetPlatform = isIgComment ? 'instagram' : 'facebook';
+               
+               if (rulePlatform === targetPlatform || rulePlatform === 'both') {
                  if (commentText.includes(rule.trigger.toLowerCase())) {
                    replyMessage = rule.reply;
                    console.log(`Rule matched for comment trigger: ${rule.trigger}`);
@@ -1530,7 +1538,11 @@ app.post('/api/webhook/facebook', async (req, res) => {
                if (!pageAccessToken) pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
                
                if (pageAccessToken) {
-                 await axios.post(`https://graph.facebook.com/v19.0/${commentId}/comments?access_token=${pageAccessToken}`, {
+                 const replyEndpoint = isIgComment 
+                   ? `https://graph.facebook.com/v19.0/${commentId}/replies`
+                   : `https://graph.facebook.com/v19.0/${commentId}/comments`;
+                   
+                 await axios.post(`${replyEndpoint}?access_token=${pageAccessToken}`, {
                    message: replyMessage
                  });
                  console.log(`Successfully replied to comment ${commentId}`);

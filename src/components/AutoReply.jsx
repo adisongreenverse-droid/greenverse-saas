@@ -166,6 +166,7 @@ const AutoReply = () => {
                 <select className="input-field" value={newPlatform} onChange={e => setNewPlatform(e.target.value)}>
                   <option>Both</option>
                   <option>Facebook</option>
+                  <option>Instagram</option>
                   <option>WhatsApp</option>
                 </select>
                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
