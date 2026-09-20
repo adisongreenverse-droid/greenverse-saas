@@ -1484,12 +1484,11 @@ app.use((err, req, res, next) => {
   res.status(500).send('Something broke!');
 });
 
-app.get('/', (req, res) => {
-  res.json({ status: 'Greenverse SaaS API is running smoothly 24/7!' });
-});
+// Serve frontend in production
+app.use(express.static(path.join(__dirname, '../dist')));
 
-app.get('/ping', (req, res) => {
-  res.send('pong');
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 // --- AI Campaign Routes ---

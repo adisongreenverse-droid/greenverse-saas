@@ -3,7 +3,7 @@ services:
     name: greenverse-backend
     env: node
     rootDir: server
-    buildCommand: npm install
+    buildCommand: npm install && cd ../ && npm install && npm run build && cd server
     startCommand: node server.js
     envVars:
       - key: NODE_ENV
