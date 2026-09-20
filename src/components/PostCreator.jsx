@@ -420,6 +420,12 @@ const PostCreator = () => {
                   </>
                 )}
               </div>
+              {postType === 'video' && (
+                <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(255, 171, 0, 0.1)', border: '1px solid rgba(255, 171, 0, 0.3)', borderRadius: '8px', color: '#ffab00', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>💡</span>
+                  <span><strong>Pro Tip:</strong> For best results on Facebook Reels, upload a <strong>Vertical Video (9:16)</strong>. Landscape/Square videos may not appear in the Reels tab on mobile.</span>
+                </div>
+              )}
             </>
           )}
           
