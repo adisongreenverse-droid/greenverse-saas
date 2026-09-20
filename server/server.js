@@ -1445,7 +1445,57 @@ app.post('/api/webhook/facebook', async (req, res) => {
              const commentText = change.value.message.toLowerCase();
              const commentId = change.value.comment_id;
              console.log(`Received comment: ${commentText}`);
-             // Comment reply logic goes here (using Graph API /comment_id/comments)
+             
+             // 1. Check Rule Engine
+             let replyMessage = null;
+             for (const rule of autoReplyRules) {
+               const rulePlatform = rule.platform ? rule.platform.toLowerCase() : 'both';
+               if (rulePlatform === 'facebook' || rulePlatform === 'both') {
+                 if (commentText.includes(rule.trigger.toLowerCase())) {
+                   replyMessage = rule.reply;
+                   console.log(`Rule matched for comment trigger: ${rule.trigger}`);
+                   break;
+                 }
+               }
+             }
+             
+             // 2. Gemini AI Fallback
+             if (!replyMessage && aiFallbackEnabled) {
+               try {
+                 let geminiKey = process.env.GEMINI_API_KEY;
+                 if (supabase) {
+                   const { data: user } = await supabase.from('users').select('gemini_api_key').eq('facebook_page_id', entry.id).single();
+                   if (user && user.gemini_api_key) geminiKey = user.gemini_api_key;
+                 }
+                 if (geminiKey) {
+                   const genAI = new GoogleGenerativeAI(geminiKey);
+                   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                   const prompt = `You are a helpful assistant for Greenverse Adison DTF Online AI Marketing. A user commented on our Facebook post: "${change.value.message}". Provide a short, polite, and helpful reply. Keep it under 2 sentences without markdown formatting.`;
+                   const result = await model.generateContent(prompt);
+                   replyMessage = (await result.response).text();
+                   console.log(`Gemini generated comment reply!`);
+                 }
+               } catch (error) {
+                 console.error("Gemini API Error (Comment):", error);
+               }
+             }
+             
+             // 3. Post Reply via Graph API
+             if (replyMessage) {
+               let pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+               if (supabase) {
+                 const { data: user } = await supabase.from('users').select('facebook_access_token').eq('facebook_page_id', entry.id).single();
+                 if (user && user.facebook_access_token) pageAccessToken = user.facebook_access_token;
+               }
+               if (pageAccessToken) {
+                 await axios.post(`https://graph.facebook.com/v19.0/${commentId}/comments?access_token=${pageAccessToken}`, {
+                   message: replyMessage
+                 });
+                 console.log(`Successfully replied to comment ${commentId}`);
+               } else {
+                 console.error("No page access token available to send comment reply.");
+               }
+             }
          }
       }
     }
