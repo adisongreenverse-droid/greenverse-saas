@@ -497,16 +497,25 @@ async function executePost(postRecord) {
           
           const { video_id, upload_url } = startRes.data;
           
-          // Phase 2: Upload Video Chunk
-          const fileBuffer = fs.readFileSync(tempFilePath);
-          await axios.post(upload_url, fileBuffer, {
-            headers: {
-              'Authorization': `OAuth ${config.token}`,
-              'offset': '0',
-              'file_size': fileBuffer.length.toString(),
-              'Content-Type': 'application/octet-stream'
-            }
-          });
+          // Phase 2: Upload Video
+          if (publicMediaUrl && publicMediaUrl.startsWith('http')) {
+            await axios.post(upload_url, null, {
+              headers: {
+                'Authorization': `OAuth ${config.token}`,
+                'file_url': publicMediaUrl
+              }
+            });
+          } else {
+            const fileBuffer = fs.readFileSync(tempFilePath);
+            await axios.post(upload_url, fileBuffer, {
+              headers: {
+                'Authorization': `OAuth ${config.token}`,
+                'offset': '0',
+                'file_size': fileBuffer.length.toString(),
+                'Content-Type': 'application/octet-stream'
+              }
+            });
+          }
           
           // Phase 3: Finish and Publish
           fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
