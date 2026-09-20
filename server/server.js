@@ -511,41 +511,22 @@ async function executePost(postRecord) {
             published: true
           });
         } else if (postType === 'video' && tempFilePath) {
-          // Phase 1: Start Reels Upload
-          const startRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
-            upload_phase: 'start',
-            access_token: config.token
-          });
+          // WORKAROUND: Instead of using the strict 'video_reels' endpoint which causes mobile visibility issues 
+          // for unverified apps, we use the standard 'videos' endpoint. Vertical videos under 90s are 
+          // automatically formatted similarly in the feed without the extreme API restrictions.
+          const FormData = require('form-data');
+          const form = new FormData();
+          form.append('access_token', config.token);
+          form.append('description', message || '');
           
-          const { video_id, upload_url } = startRes.data;
-          
-          // Phase 2: Upload Video
           if (publicMediaUrl && publicMediaUrl.startsWith('http')) {
-            await axios.post(upload_url, null, {
-              headers: {
-                'Authorization': `OAuth ${config.token}`,
-                'file_url': publicMediaUrl
-              }
-            });
+            form.append('file_url', publicMediaUrl);
           } else {
-            const fileBuffer = fs.readFileSync(tempFilePath);
-            await axios.post(upload_url, fileBuffer, {
-              headers: {
-                'Authorization': `OAuth ${config.token}`,
-                'offset': '0',
-                'file_size': fileBuffer.length.toString(),
-                'Content-Type': 'application/octet-stream'
-              }
-            });
+            form.append('source', fs.createReadStream(tempFilePath));
           }
-          
-          // Phase 3: Finish and Publish
-          fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
-            upload_phase: 'finish',
-            video_id: video_id,
-            video_state: 'PUBLISHED',
-            description: message || '',
-            access_token: config.token
+
+          fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/videos`, form, {
+            headers: { ...form.getHeaders() }
           });
         }
         if (fbRes) results.facebook.push({ name: config.name, success: true, data: fbRes.data });
