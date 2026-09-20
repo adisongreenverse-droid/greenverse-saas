@@ -489,13 +489,30 @@ async function executePost(postRecord) {
             published: true
           });
         } else if (postType === 'video' && tempFilePath) {
-          const formData = new FormData();
-          formData.append('description', message || '');
-          formData.append('access_token', config.token);
-          formData.append('published', 'true');
-          formData.append('source', fs.createReadStream(tempFilePath));
-          fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/videos`, formData, {
-            headers: { ...formData.getHeaders() }
+          // Phase 1: Start Reels Upload
+          const startRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
+            upload_phase: 'start',
+            access_token: config.token
+          });
+          
+          const { video_id, upload_url } = startRes.data;
+          
+          // Phase 2: Upload Video Chunk
+          const fileStream = fs.createReadStream(tempFilePath);
+          await axios.post(upload_url, fileStream, {
+            headers: {
+              'Authorization': `OAuth ${config.token}`,
+              'file_offset': '0'
+            }
+          });
+          
+          // Phase 3: Finish and Publish
+          fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
+            upload_phase: 'finish',
+            video_id: video_id,
+            video_state: 'PUBLISHED',
+            description: message || '',
+            access_token: config.token
           });
         }
         if (fbRes) results.facebook.push({ name: config.name, success: true, data: fbRes.data });
