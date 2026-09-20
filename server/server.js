@@ -51,9 +51,23 @@ app.post('/api/auth/register', async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
 
     // Validate Invite Code
-    const expectedCode = process.env.ADMIN_INVITE_CODE || 'ADISON-2026';
-    if (inviteCode !== expectedCode) {
-      return res.status(403).json({ error: "Invalid Access Code. Please contact Admin." });
+    const masterCode = process.env.ADMIN_INVITE_CODE || 'ADISON-2026';
+    let isMasterCode = (inviteCode === masterCode);
+    let dbInvite = null;
+
+    if (!isMasterCode) {
+      // Check in invite_codes table
+      const { data: codeData, error: codeErr } = await supabase
+        .from('invite_codes')
+        .select('*')
+        .eq('code', inviteCode)
+        .eq('is_used', false)
+        .maybeSingle();
+      
+      if (codeErr || !codeData) {
+        return res.status(403).json({ error: "Invalid or expired Access Code." });
+      }
+      dbInvite = codeData;
     }
 
     const { data: existingUser } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
@@ -65,6 +79,14 @@ app.post('/api/auth/register', async (req, res) => {
     ]).select().single();
 
     if (error) throw error;
+    
+    // Mark the invite code as used
+    if (dbInvite) {
+      await supabase
+        .from('invite_codes')
+        .update({ is_used: true, used_by: newUser.id })
+        .eq('id', dbInvite.id);
+    }
     
     res.json({ success: true, message: "User created successfully" });
   } catch (error) {
@@ -1227,6 +1249,63 @@ app.get('/api/user/ad_settings', authenticateToken, async (req, res) => {
     }});
   } catch (err) {
     res.status(500).json({ success: false, error: "Failed to fetch ad settings" });
+  }
+});
+
+// ==========================================
+// ADMIN: INVITE CODES
+// ==========================================
+
+// Get all invite codes
+app.get('/api/admin/invites', authenticateToken, async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+  try {
+    // Basic admin check (could be expanded)
+    const { data: user } = await supabase.from('users').select('is_admin').eq('id', req.user.id).single();
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+
+    const { data, error } = await supabase
+      .from('invite_codes')
+      .select('*, users:used_by(email)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json({ success: true, invites: data });
+  } catch (error) {
+    console.error("Fetch invites error:", error);
+    res.status(500).json({ error: "Failed to fetch invite codes" });
+  }
+});
+
+// Generate a new invite code
+app.post('/api/admin/invites', authenticateToken, async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+  try {
+    // Basic admin check
+    const { data: user } = await supabase.from('users').select('is_admin').eq('id', req.user.id).single();
+    if (!user || !user.is_admin) {
+      return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+
+    // Generate random 6 character code
+    const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newCode = `GV-${randomStr}`;
+
+    const { data, error } = await supabase
+      .from('invite_codes')
+      .insert([{ code: newCode }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, invite: data });
+  } catch (error) {
+    console.error("Generate invite error:", error);
+    res.status(500).json({ error: "Failed to generate invite code" });
   }
 });
 
