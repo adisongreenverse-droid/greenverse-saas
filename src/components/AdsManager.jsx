@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { DollarSign, Megaphone, Activity } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { DollarSign, Megaphone, Activity, Settings, Save, RefreshCw } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 
 const AdsManager = () => {
@@ -7,6 +7,87 @@ const AdsManager = () => {
   const [audience, setAudience] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [generatedAd, setGeneratedAd] = useState(null);
+  
+  // Dynamic Settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [businessProfile, setBusinessProfile] = useState('');
+  const [adAccountId, setAdAccountId] = useState('');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  
+  // Real Metrics Data
+  const [metrics, setMetrics] = useState({
+    spend: '₹0',
+    cpc: '₹0.00',
+    conversions: 0,
+    campaigns: []
+  });
+  const [isFetchingMetrics, setIsFetchingMetrics] = useState(false);
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/user/ad_settings`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setBusinessProfile(data.settings.business_profile || '');
+        setAdAccountId(data.settings.ad_account_id || '');
+        // Once settings are loaded, fetch metrics
+        if (data.settings.ad_account_id) {
+          fetchMetrics();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+    }
+  };
+
+  const saveSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/user/ad_settings`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ business_profile: businessProfile, ad_account_id: adAccountId })
+      });
+      const data = await response.json();
+      if (data.success) {
+        alert("Settings saved successfully!");
+        setShowSettings(false);
+        fetchMetrics(); // Refresh data with new account
+      } else {
+        alert("Error saving settings");
+      }
+    } catch (err) {
+      alert("Failed to save settings.");
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const fetchMetrics = async () => {
+    setIsFetchingMetrics(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/ads/metrics`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      const data = await response.json();
+      if (data.success) {
+        setMetrics(data.metrics);
+      }
+    } catch (err) {
+      console.error("Failed to fetch ad metrics:", err);
+    } finally {
+      setIsFetchingMetrics(false);
+    }
+  };
 
   const handleGenerateAd = async () => {
     if (!product) return;
@@ -14,8 +95,11 @@ const AdsManager = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/ads/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product, audience })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify({ product, audience, businessProfile })
       });
       const data = await response.json();
       if (data.error) {
@@ -30,59 +114,111 @@ const AdsManager = () => {
       setIsLoading(false);
     }
   };
+
   return (
     <div>
-      <h2 className="page-title">Ads & Budget Manager</h2>
-      <p className="page-subtitle mb-6">Track your paid campaigns across Facebook and Instagram</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 className="page-title">Ads & Budget Manager</h2>
+          <p className="page-subtitle mb-6">Track your paid campaigns across Facebook and Instagram</p>
+        </div>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-outline" onClick={fetchMetrics} disabled={isFetchingMetrics}>
+            <RefreshCw size={16} className={isFetchingMetrics ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button className="btn btn-outline" onClick={() => setShowSettings(!showSettings)}>
+            <Settings size={16} /> Ad Settings
+          </button>
+        </div>
+      </div>
+
+      {showSettings && (
+        <div className="glass-card" style={{ padding: '24px', marginBottom: '24px', borderLeft: '4px solid var(--accent-primary)' }}>
+          <h3 style={{ marginBottom: '16px' }}>⚙️ Multi-Tenant Ad Configuration</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Setup your specific Business Profile and Facebook Ad Account ID here. The AI will use your profile to generate relevant ads, and the metrics will be fetched securely for your account only.
+          </p>
+          <div className="grid-2">
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>Your Business Profile (What do you sell?)</label>
+              <textarea 
+                className="input-glass"
+                rows="3"
+                placeholder="e.g. We are a DTF printing service in Mumbai offering custom t-shirts."
+                value={businessProfile}
+                onChange={(e) => setBusinessProfile(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>Facebook Ad Account ID</label>
+              <input 
+                type="text" 
+                className="input-glass" 
+                placeholder="e.g. 1234567890123"
+                value={adAccountId}
+                onChange={(e) => setAdAccountId(e.target.value)}
+                style={{ width: '100%', marginBottom: '16px' }}
+              />
+              <button className="btn btn-primary" onClick={saveSettings} disabled={isSavingSettings}>
+                {isSavingSettings ? 'Saving...' : <><Save size={16}/> Save Settings</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid-3" style={{ marginBottom: '24px' }}>
         <div className="glass-card" style={{ padding: '24px' }}>
           <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Total Spend (This Month)</div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>₹4,500</div>
-          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '8px' }}>Budget: ₹10,000</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>{metrics.spend}</div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '8px' }}>Live Facebook Data</div>
         </div>
         <div className="glass-card" style={{ padding: '24px' }}>
           <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Cost Per Click (CPC)</div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }} className="text-gradient">₹2.45</div>
-          <div style={{ color: 'var(--success)', fontSize: '0.9rem', marginTop: '8px' }}>-0.50 from last week</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }} className="text-gradient">{metrics.cpc}</div>
+          <div style={{ color: 'var(--success)', fontSize: '0.9rem', marginTop: '8px' }}>Avg. Performance</div>
         </div>
         <div className="glass-card" style={{ padding: '24px' }}>
-          <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Total Conversions</div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>128</div>
-          <div style={{ color: 'var(--success)', fontSize: '0.9rem', marginTop: '8px' }}>+15% from last week</div>
+          <div style={{ color: 'var(--text-secondary)', marginBottom: '8px' }}>Total Conversions / Leads</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>{metrics.conversions}</div>
+          <div style={{ color: 'var(--success)', fontSize: '0.9rem', marginTop: '8px' }}>Across Campaigns</div>
         </div>
       </div>
 
       <div className="glass-card" style={{ padding: '24px', marginBottom: '24px' }}>
         <h3 style={{ marginBottom: '24px' }}>Active Campaigns</h3>
         
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--border-glass)', color: 'var(--text-secondary)' }}>
-              <th style={{ padding: '12px 0' }}>Campaign Name</th>
-              <th>Status</th>
-              <th>Spent</th>
-              <th>Reach</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-              <td style={{ padding: '16px 0', fontWeight: '500' }}>Summer DTF Offer</td>
-              <td><span className="status-badge status-connected"><div className="status-dot"></div> Active</span></td>
-              <td>₹1,200</td>
-              <td>15.2K</td>
-              <td><button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: '0.8rem' }}>Pause</button></td>
-            </tr>
-            <tr>
-              <td style={{ padding: '16px 0', fontWeight: '500' }}>AI Custom Outfits Promo</td>
-              <td><span className="status-badge status-connected"><div className="status-dot"></div> Active</span></td>
-              <td>₹3,300</td>
-              <td>42.8K</td>
-              <td><button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: '0.8rem' }}>Pause</button></td>
-            </tr>
-          </tbody>
-        </table>
+        {metrics.campaigns.length === 0 ? (
+          <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+            No active campaigns found. Make sure your Ad Account ID is configured and you have active ads running.
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border-glass)', color: 'var(--text-secondary)' }}>
+                <th style={{ padding: '12px 0' }}>Campaign Name</th>
+                <th>Status</th>
+                <th>Spent</th>
+                <th>Impressions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.campaigns.map((camp, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <td style={{ padding: '16px 0', fontWeight: '500' }}>{camp.name}</td>
+                  <td>
+                    <span className={`status-badge ${camp.status === 'ACTIVE' ? 'status-connected' : 'status-disconnected'}`}>
+                      <div className="status-dot"></div> {camp.status}
+                    </span>
+                  </td>
+                  <td>{camp.spend}</td>
+                  <td>{camp.impressions}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="glass-card" style={{ padding: '24px', borderLeft: '4px solid var(--accent-primary)' }}>
@@ -90,17 +226,17 @@ const AdsManager = () => {
           ✨ AI Ad Strategy Generator
         </h3>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-          Let Gemini create high-converting ad copy and audience targeting for your DTF products.
+          Let Gemini create high-converting ad copy and audience targeting specifically tailored to your configured Business Profile.
         </p>
 
         <div className="grid-2">
           <div>
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>Product Description</label>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)' }}>Product / Offer Description</label>
               <input 
                 type="text" 
                 className="input-glass" 
-                placeholder="e.g. Neon Cyberpunk DTF Printed T-shirt"
+                placeholder="e.g. Neon Cyberpunk T-shirt (Buy 1 Get 1)"
                 value={product}
                 onChange={(e) => setProduct(e.target.value)}
                 style={{ width: '100%' }}
@@ -123,7 +259,7 @@ const AdsManager = () => {
               disabled={isLoading || !product}
               style={{ width: '100%' }}
             >
-              {isLoading ? 'Generating Strategy...' : 'Generate Ad Strategy'}
+              {isLoading ? 'Generating Strategy...' : 'Generate AI Ad Strategy'}
             </button>
           </div>
 
@@ -151,7 +287,7 @@ const AdsManager = () => {
               </div>
             ) : (
               <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border-glass)', borderRadius: '8px', color: 'var(--text-secondary)' }}>
-                Your AI-generated ad strategy will appear here.
+                Your Custom AI-generated ad strategy will appear here.
               </div>
             )}
           </div>

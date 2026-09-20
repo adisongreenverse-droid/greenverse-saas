@@ -1205,13 +1205,107 @@ app.post('/api/mockup/auto', upload.fields([{ name: 'bgImage', maxCount: 1 }, { 
   }
 });
 
+// --- AD SETTINGS & METRICS API ---
+
+app.get('/api/user/ad_settings', authenticateToken, async (req, res) => {
+  if (!supabase) return res.json({ success: true, settings: {} });
+  try {
+    const { data: user, error } = await supabase.from('users').select('business_profile, ad_account_id').eq('id', req.user.id).single();
+    if (error) throw error;
+    res.json({ success: true, settings: {
+      business_profile: user.business_profile || '',
+      ad_account_id: user.ad_account_id || ''
+    }});
+  } catch (err) {
+    res.status(500).json({ success: false, error: "Failed to fetch ad settings" });
+  }
+});
+
+app.post('/api/user/ad_settings', authenticateToken, express.json(), async (req, res) => {
+  const { business_profile, ad_account_id } = req.body;
+  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+
+  try {
+    const updateData = {};
+    if (business_profile !== undefined) updateData.business_profile = business_profile;
+    if (ad_account_id !== undefined) updateData.ad_account_id = ad_account_id;
+    
+    const { error } = await supabase.from('users').update(updateData).eq('id', req.user.id);
+    if (error) throw error;
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error saving ad settings:", err);
+    res.status(500).json({ error: "Failed to save ad settings" });
+  }
+});
+
+app.get('/api/ads/metrics', authenticateToken, async (req, res) => {
+  let adAccountId = null;
+  let accessToken = null;
+  
+  if (supabase) {
+    const { data: user } = await supabase.from('users').select('ad_account_id, facebook_access_token').eq('id', req.user.id).single();
+    if (user && user.ad_account_id) {
+      adAccountId = user.ad_account_id;
+      accessToken = user.facebook_access_token;
+    }
+  }
+
+  // Fallback to Env if missing
+  if (!accessToken) accessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+
+  if (!adAccountId || !accessToken) {
+    // Return dummy empty state
+    return res.json({
+      success: true,
+      metrics: { spend: '₹0', cpc: '₹0.00', conversions: 0, campaigns: [] }
+    });
+  }
+
+  try {
+    const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+    
+    // 1. Fetch campaigns
+    const campaignsRes = await axios.get(`https://graph.facebook.com/v19.0/${actId}/campaigns?fields=name,status,objective&access_token=${accessToken}`);
+    const campaigns = campaignsRes.data.data || [];
+    
+    // 2. Fetch insights for totals
+    const insightsRes = await axios.get(`https://graph.facebook.com/v19.0/${actId}/insights?fields=spend,cpc,actions,impressions&date_preset=this_month&access_token=${accessToken}`);
+    const insights = insightsRes.data.data?.[0] || { spend: 0, cpc: 0, actions: [], impressions: 0 };
+    
+    const conversions = insights.actions?.find(a => a.action_type === 'offsite_conversion') || { value: 0 };
+    
+    res.json({
+      success: true,
+      metrics: {
+        spend: `₹${parseFloat(insights.spend || 0).toLocaleString()}`,
+        cpc: `₹${parseFloat(insights.cpc || 0).toFixed(2)}`,
+        conversions: conversions.value,
+        campaigns: campaigns.map(c => ({
+          name: c.name,
+          status: c.status,
+          spend: `Active (Real-time)`,
+          impressions: `...`
+        })).slice(0, 5) // max 5
+      }
+    });
+  } catch (error) {
+    console.error("Ads API Error:", error.response?.data || error.message);
+    res.json({
+      success: true,
+      metrics: { spend: 'Error fetching', cpc: '-', conversions: 0, campaigns: [] }
+    });
+  }
+});
+
 app.post('/api/ads/generate', async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
       return res.status(400).json({ error: 'Gemini API key is missing' });
     }
 
-    const { product, audience } = req.body;
+    const { product, audience, businessProfile } = req.body;
     
     if (!product) {
       return res.status(400).json({ error: 'Product name is required' });
@@ -1220,24 +1314,25 @@ app.post('/api/ads/generate', async (req, res) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
-    const prompt = `You are a world-class Facebook and Instagram Ad Specialist for a DTF (Direct to Film) printing and apparel business.
+    const prompt = `You are a world-class Facebook and Instagram Ad Specialist.
+The user runs this business: "${businessProfile || 'A general e-commerce business'}".
 The user wants to run an ad for this product: "${product}".
-Target Audience info provided by user: "${audience || 'General clothing buyers'}".
+Target Audience info provided by user: "${audience || 'General buyers'}".
 
-Generate a professional, high-converting Ad Strategy in JSON format.
+Generate a professional, high-converting Ad Strategy tailored STRICTLY to their business profile.
 Your output MUST be a valid JSON object with EXACTLY these keys:
 {
   "targetAudience": {
     "age": "e.g., 18-35",
-    "interests": "e.g., Streetwear, Graphic Tees, Anime",
-    "locations": "e.g., Urban areas in India"
+    "interests": "e.g., specific to the business",
+    "locations": "e.g., Urban areas"
   },
   "adCopy": {
     "headline": "A catchy, short headline",
     "primaryText": "The main ad text (use emojis, keep it engaging and in Hinglish/English)",
     "callToAction": "e.g., Shop Now, Learn More"
   },
-  "budgetRecommendation": "A short sentence advising on daily budget for testing."
+  "budgetRecommendation": "A short sentence advising on daily budget."
 }
 Return ONLY valid JSON. No markdown, no backticks, no extra text.`;
 
@@ -1246,7 +1341,6 @@ Return ONLY valid JSON. No markdown, no backticks, no extra text.`;
     
     let parsedData;
     try {
-      // Remove any markdown formatting if Gemini accidentally includes it
       const cleanJson = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
       parsedData = JSON.parse(cleanJson);
     } catch (e) {
