@@ -1,23 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import { Image as ImageIcon, Download, Wand2, Loader } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Image as ImageIcon, Download, Wand2, Loader, Upload, Sliders } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 
 const MockupStudio = () => {
-  const [prompt, setPrompt] = useState('');
-  const [artStyle, setArtStyle] = useState('');
+  const [prompt, setPrompt] = useState('A handsome model wearing a blank white t-shirt, standing on a New York street, photorealistic');
+  const [artStyle, setArtStyle] = useState('Photorealistic, DSLR, 8k resolution, highly detailed');
   const [generatedImageUrl, setGeneratedImageUrl] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   
-  // Text Overlay State
-  const [overlayText, setOverlayText] = useState('');
-  const [overlayColor, setOverlayColor] = useState('#ffffff');
-  const [overlayPosition, setOverlayPosition] = useState('bottom');
+  // Logo Overlay State
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [logoScale, setLogoScale] = useState(0.25); // 25% of canvas width by default
+  const [logoOffsetX, setLogoOffsetX] = useState(0);
+  const [logoOffsetY, setLogoOffsetY] = useState(0);
   
-  const canvasRef = React.useRef(null);
-  const imageRef = React.useRef(null);
+  const canvasRef = useRef(null);
+  const imageRef = useRef(null);
+  const logoImageRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // Draw on canvas whenever text/image/settings change
-  useEffect(() => {
+  // Handle Logo Upload
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setLogoFile(file);
+    const url = URL.createObjectURL(file);
+    setLogoUrl(url);
+    
+    // Create Image object for logo
+    const img = new Image();
+    img.onload = () => {
+      logoImageRef.current = img;
+      redrawCanvas();
+    };
+    img.src = url;
+  };
+
+  // Draw on canvas whenever images or settings change
+  const redrawCanvas = () => {
     if (!generatedImageUrl || !canvasRef.current) return;
     
     const canvas = canvasRef.current;
@@ -34,47 +56,43 @@ const MockupStudio = () => {
     } else {
       drawCanvas(ctx, canvas, imageRef.current);
     }
-  }, [generatedImageUrl, overlayText, overlayColor, overlayPosition]);
+  };
 
-  const drawCanvas = (ctx, canvas, img) => {
-    // Set canvas dimensions to match image natural size or a default large size
-    canvas.width = img.width || 800;
-    canvas.height = img.height || 800;
+  useEffect(() => {
+    redrawCanvas();
+  }, [generatedImageUrl, logoUrl, logoScale, logoOffsetX, logoOffsetY]);
+
+  const drawCanvas = (ctx, canvas, bgImg) => {
+    // Set canvas dimensions to match background image
+    canvas.width = bgImg.width || 800;
+    canvas.height = bgImg.height || 800;
     
-    // Draw base image
+    // Draw background image
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
     
-    // Draw text overlay if any
-    if (overlayText.trim()) {
-      ctx.fillStyle = overlayColor;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+    // Draw Logo overlay if available
+    if (logoImageRef.current) {
+      const logo = logoImageRef.current;
       
-      // Calculate font size based on canvas width (approx 8%)
-      const fontSize = Math.floor(canvas.width * 0.08);
-      ctx.font = `bold ${fontSize}px "Inter", sans-serif`;
+      // Calculate target width and height based on scale slider (relative to canvas width)
+      const targetWidth = canvas.width * logoScale;
+      const aspectRatio = logo.height / logo.width;
+      const targetHeight = targetWidth * aspectRatio;
       
-      // Add text shadow for readability
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
+      // Calculate centered X, Y then apply offsets
+      // Slider offset is -100 to 100, we map it to pixels relative to canvas size
+      const centerX = (canvas.width / 2) - (targetWidth / 2);
+      const centerY = (canvas.height / 2) - (targetHeight / 2);
       
-      const x = canvas.width / 2;
-      let y = canvas.height / 2;
+      const offsetXPixels = (logoOffsetX / 100) * (canvas.width / 2);
+      const offsetYPixels = (logoOffsetY / 100) * (canvas.height / 2);
       
-      if (overlayPosition === 'top') {
-        y = canvas.height * 0.15;
-      } else if (overlayPosition === 'bottom') {
-        y = canvas.height * 0.85;
-      }
+      const finalX = centerX + offsetXPixels;
+      const finalY = centerY + offsetYPixels;
       
-      // Support multiline text (very basic: split by newline if we want, but input is single line here)
-      ctx.fillText(overlayText, x, y);
-      
-      // Reset shadow
-      ctx.shadowColor = 'transparent';
+      // We don't want global composite operation that destroys background, just normal drawImage
+      ctx.drawImage(logo, finalX, finalY, targetWidth, targetHeight);
     }
   };
 
@@ -85,10 +103,8 @@ const MockupStudio = () => {
     setGeneratedImageUrl(null);
 
     try {
-      // Append art style to prompt if selected
       const finalPrompt = artStyle ? `${prompt.trim()}, ${artStyle} style` : prompt.trim();
 
-      // Use the Hugging Face /api/generate-image endpoint
       const response = await fetch(`${API_BASE_URL}/api/generate-image`, {
         method: 'POST',
         headers: { 
@@ -101,14 +117,14 @@ const MockupStudio = () => {
       const data = await response.json();
       
       if (data.success && data.image) {
-        imageRef.current = null; // Reset cached image so canvas redraws
+        imageRef.current = null; 
         setGeneratedImageUrl(data.image);
       } else {
-        throw new Error(data.error || "Failed to generate image from AI.");
+        throw new Error(data.error || "Failed to generate AI Mockup.");
       }
     } catch (error) {
       console.error(error);
-      alert("Failed to generate image. Please try again.");
+      alert("Failed to generate mockup. Please try again.");
     } finally {
       setIsGenerating(false);
     }
@@ -118,11 +134,10 @@ const MockupStudio = () => {
     if (!generatedImageUrl || !canvasRef.current) return;
     
     try {
-      // Export canvas directly
-      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.9);
+      const dataUrl = canvasRef.current.toDataURL('image/jpeg', 0.95);
       const link = document.createElement('a');
       link.href = dataUrl;
-      link.download = `GreenVerse_AI_Poster_${Date.now()}.jpg`;
+      link.download = `GreenVerse_DTF_Mockup_${Date.now()}.jpg`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -134,8 +149,8 @@ const MockupStudio = () => {
 
   return (
     <div>
-      <h2 className="page-title">AI Image Studio</h2>
-      <p className="page-subtitle mb-6">Type a prompt to instantly generate high-quality images and posters for your business.</p>
+      <h2 className="page-title">AI T-Shirt Mockup Studio</h2>
+      <p className="page-subtitle mb-6">Generate an AI model wearing a blank T-shirt, and automatically overlay your DTF design!</p>
       
       <div className="grid-2">
         {/* Left Column: Generator Controls */}
@@ -144,12 +159,12 @@ const MockupStudio = () => {
           <div>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', fontWeight: 'bold' }}>
               <Wand2 size={20} className="text-gradient" />
-              What do you want to create?
+              Describe the Base Mockup Scene
             </label>
             <textarea 
               className="input-glass" 
-              rows="4"
-              placeholder="e.g. A stunning promotional poster for DTF Printing services, vibrant colors, professional lighting, photorealistic..."
+              rows="3"
+              placeholder="e.g. A handsome model wearing a blank white t-shirt, standing on a New York street..."
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               style={{ resize: 'vertical', width: '100%', fontSize: '15px' }}
@@ -158,7 +173,7 @@ const MockupStudio = () => {
 
           <div>
             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-              Art Style (Optional)
+              Photography Style
             </label>
             <select 
               className="input-glass" 
@@ -166,51 +181,80 @@ const MockupStudio = () => {
               onChange={(e) => setArtStyle(e.target.value)}
               style={{ width: '100%', padding: '12px' }}
             >
-              <option value="">None (Let AI decide)</option>
-              <option value="Photorealistic, Highly Detailed, 8k, Unreal Engine 5">Photorealistic / 3D Render</option>
-              <option value="Cyberpunk, Neon Lights, Futuristic, synthwave">Cyberpunk / Neon</option>
-              <option value="Minimalist, clean background, modern flat design">Minimalist / Clean</option>
-              <option value="Vintage, Retro, 90s aesthetic, grain">Vintage / Retro</option>
-              <option value="Anime style, Studio Ghibli, vibrant colors, beautiful sky">Anime / Illustration</option>
+              <option value="Photorealistic, DSLR, 8k resolution, highly detailed">Photorealistic / Professional</option>
+              <option value="Studio lighting, plain background, catalogue style">Studio / Clean Background</option>
+              <option value="Cinematic lighting, dramatic, moody">Cinematic / Moody</option>
+              <option value="Streetwear style, urban photography, raw">Streetwear / Urban</option>
+              <option value="Vintage film camera, retro aesthetics, grainy">Vintage / Film</option>
             </select>
           </div>
 
           <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
-            <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--text-primary)' }}>Text Overlay</h4>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <input 
-                type="text"
-                placeholder="Add text to your poster..."
-                className="form-input"
-                value={overlayText}
-                onChange={(e) => setOverlayText(e.target.value)}
-                style={{ width: '100%', background: 'rgba(255,255,255,0.05)' }}
-              />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Position</label>
-                  <select 
-                    className="form-input"
-                    value={overlayPosition}
-                    onChange={(e) => setOverlayPosition(e.target.value)}
-                    style={{ width: '100%', background: 'rgba(255,255,255,0.05)', padding: '8px' }}
-                  >
-                    <option value="top">Top</option>
-                    <option value="center">Center</option>
-                    <option value="bottom">Bottom</option>
-                  </select>
-                </div>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Upload size={16} /> DTF Design Overlay
+            </h4>
+            
+            <input 
+              type="file" 
+              accept="image/png"
+              ref={fileInputRef}
+              onChange={handleLogoUpload}
+              style={{ display: 'none' }}
+            />
+            
+            <button 
+              className="btn btn-outline" 
+              onClick={() => fileInputRef.current.click()}
+              style={{ width: '100%', marginBottom: '16px', borderStyle: 'dashed' }}
+            >
+              {logoFile ? `Change Design (${logoFile.name})` : '+ Upload Transparent PNG Logo'}
+            </button>
+
+            {logoUrl && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Color</label>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    <span>Size (Scale)</span>
+                    <span>{Math.round(logoScale * 100)}%</span>
+                  </label>
                   <input 
-                    type="color"
-                    value={overlayColor}
-                    onChange={(e) => setOverlayColor(e.target.value)}
-                    style={{ width: '50px', height: '36px', padding: '0', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                    type="range" 
+                    min="0.05" max="0.8" step="0.01" 
+                    value={logoScale} 
+                    onChange={(e) => setLogoScale(parseFloat(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    <span>Vertical Position (Y)</span>
+                    <span>{logoOffsetY > 0 ? `+${logoOffsetY}` : logoOffsetY}</span>
+                  </label>
+                  <input 
+                    type="range" 
+                    min="-80" max="80" step="1" 
+                    value={logoOffsetY} 
+                    onChange={(e) => setLogoOffsetY(parseInt(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                
+                <div>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                    <span>Horizontal Position (X)</span>
+                    <span>{logoOffsetX > 0 ? `+${logoOffsetX}` : logoOffsetX}</span>
+                  </label>
+                  <input 
+                    type="range" 
+                    min="-80" max="80" step="1" 
+                    value={logoOffsetX} 
+                    onChange={(e) => setLogoOffsetX(parseInt(e.target.value))}
+                    style={{ width: '100%' }}
                   />
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           <button 
@@ -222,31 +266,22 @@ const MockupStudio = () => {
             {isGenerating ? (
               <>
                 <Loader size={20} className="animate-spin" />
-                Generating Image... (Takes 5-10s)
+                Generating Background... (Takes 5-10s)
               </>
             ) : (
               <>
                 <Wand2 size={20} />
-                Generate AI Image
+                Generate T-Shirt Scene
               </>
             )}
           </button>
-
-          <div style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', marginTop: 'auto', border: '1px solid var(--border-glass)' }}>
-            <h4 style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1px' }}>💡 Tips for best results</h4>
-            <ul style={{ fontSize: '13px', color: '#ccc', paddingLeft: '16px', margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <li>Be specific about colors and lighting.</li>
-              <li>Mention "4k" or "photorealistic" for high quality.</li>
-              <li>Keep trying different prompts until you get the perfect shot!</li>
-            </ul>
-          </div>
         </div>
 
         {/* Right Column: Preview and Download */}
         <div className="glass-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column' }}>
           <h3 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <ImageIcon size={20} />
-            AI Output
+            Mockup Preview
           </h3>
           
           <div style={{ 
@@ -264,7 +299,7 @@ const MockupStudio = () => {
             {isGenerating ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: 'var(--accent-primary)' }}>
                 <Loader size={48} className="animate-spin" style={{ marginBottom: '16px' }} />
-                <p>Painting your imagination...</p>
+                <p>Generating perfect AI mockup...</p>
               </div>
             ) : generatedImageUrl ? (
               <canvas 
@@ -274,7 +309,8 @@ const MockupStudio = () => {
             ) : (
               <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
                 <ImageIcon size={48} style={{ margin: '0 auto 16px', opacity: 0.5 }} />
-                <p>Your generated image will appear here.</p>
+                <p>Your AI T-Shirt Mockup will appear here.</p>
+                <p style={{ fontSize: '12px', marginTop: '8px' }}>First generate a scene, then upload your DTF design!</p>
               </div>
             )}
           </div>
@@ -287,7 +323,7 @@ const MockupStudio = () => {
               style={{ width: '100%', justifyContent: 'center' }}
             >
               <Download size={18} />
-              Download Image
+              Download Final Mockup
             </button>
           </div>
         </div>
