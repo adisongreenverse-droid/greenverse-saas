@@ -18,7 +18,7 @@ const AutoReply = () => {
   const fetchRulesAndSettings = async () => {
     try {
       const [rulesRes, settingsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/autoreply/rules`),
+        fetch(`${API_BASE_URL}/api/autoreply/rules`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }),
         fetch(`${API_BASE_URL}/api/autoreply/settings`, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } })
       ]);
       
@@ -61,7 +61,10 @@ const AutoReply = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/autoreply/rules`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
         body: JSON.stringify({ trigger: newTrigger, reply: newReply, platform: newPlatform })
       });
       const data = await res.json();
@@ -78,7 +81,10 @@ const AutoReply = () => {
 
   const handleDeleteRule = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/autoreply/rules/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/api/autoreply/rules/${id}`, { 
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
       const data = await res.json();
       if (data.success) {
         setRules(rules.filter(r => r.id !== id));
