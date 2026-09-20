@@ -47,8 +47,14 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/auth/register', async (req, res) => {
   if (!supabase) return res.status(500).json({ error: "Database not configured" });
   try {
-    const { email, password } = req.body;
+    const { email, password, inviteCode } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+
+    // Validate Invite Code
+    const expectedCode = process.env.ADMIN_INVITE_CODE || 'ADISON-2026';
+    if (inviteCode !== expectedCode) {
+      return res.status(403).json({ error: "Invalid Access Code. Please contact Admin." });
+    }
 
     const { data: existingUser } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
     if (existingUser) return res.status(400).json({ error: "User already exists" });
