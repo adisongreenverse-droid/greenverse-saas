@@ -498,13 +498,13 @@ async function executePost(postRecord) {
           const { video_id, upload_url } = startRes.data;
           
           // Phase 2: Upload Video Chunk
-          const fileStats = fs.statSync(tempFilePath);
-          const fileStream = fs.createReadStream(tempFilePath);
-          await axios.post(upload_url, fileStream, {
+          const fileBuffer = fs.readFileSync(tempFilePath);
+          await axios.post(upload_url, fileBuffer, {
             headers: {
               'Authorization': `OAuth ${config.token}`,
               'offset': '0',
-              'file_size': fileStats.size.toString()
+              'file_size': fileBuffer.length.toString(),
+              'Content-Type': 'application/octet-stream'
             }
           });
           
