@@ -1299,38 +1299,66 @@ Only output the JSON. Do not include markdown codeblocks like \`\`\`json.`;
 // AUTO-REPLY BOT & WEBHOOKS
 // ==========================================
 
-// In-memory store for Auto-Reply Rules
-let autoReplyRules = [
-  { id: '1', trigger: 'price', reply: 'Our DTF prints start from just Rs. 150 per sq foot!', platform: 'Both' },
-  { id: '2', trigger: 'location', reply: 'We are located in Delhi, India. We ship nationwide.', platform: 'Facebook' },
-  { id: '3', trigger: 'contact', reply: 'You can call us at +91-9876543210 for bulk orders.', platform: 'WhatsApp' }
-];
-
-let aiFallbackEnabled = false;
-
 // --- Rule Management APIs ---
-app.get('/api/autoreply/rules', (req, res) => {
-  res.json({ success: true, rules: autoReplyRules });
+app.get('/api/autoreply/rules', authenticateToken, async (req, res) => {
+  if (!supabase) return res.json({ success: true, rules: [] });
+  try {
+    const { data: user } = await supabase.from('users').select('auto_reply_rules').eq('id', req.user.id).single();
+    const rules = user?.auto_reply_rules || [];
+    res.json({ success: true, rules });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.post('/api/autoreply/rules', express.json(), (req, res) => {
-  const newRule = { id: Date.now().toString(), ...req.body };
-  autoReplyRules.push(newRule);
-  res.json({ success: true, rule: newRule });
+app.post('/api/autoreply/rules', authenticateToken, express.json(), async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "DB not configured" });
+  try {
+    const { data: user } = await supabase.from('users').select('auto_reply_rules').eq('id', req.user.id).single();
+    const rules = user?.auto_reply_rules || [];
+    const newRule = { id: Date.now().toString(), ...req.body };
+    rules.push(newRule);
+    
+    await supabase.from('users').update({ auto_reply_rules: rules }).eq('id', req.user.id);
+    res.json({ success: true, rule: newRule });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.delete('/api/autoreply/rules/:id', (req, res) => {
-  autoReplyRules = autoReplyRules.filter(r => r.id !== req.params.id);
-  res.json({ success: true });
+app.delete('/api/autoreply/rules/:id', authenticateToken, async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "DB not configured" });
+  try {
+    const { data: user } = await supabase.from('users').select('auto_reply_rules').eq('id', req.user.id).single();
+    let rules = user?.auto_reply_rules || [];
+    rules = rules.filter(r => r.id !== req.params.id);
+    
+    await supabase.from('users').update({ auto_reply_rules: rules }).eq('id', req.user.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.get('/api/autoreply/settings', authenticateToken, (req, res) => {
-  res.json({ success: true, aiFallbackEnabled });
+app.get('/api/autoreply/settings', authenticateToken, async (req, res) => {
+  if (!supabase) return res.json({ success: true, aiFallbackEnabled: false });
+  try {
+    const { data: user } = await supabase.from('users').select('ai_fallback_enabled').eq('id', req.user.id).single();
+    res.json({ success: true, aiFallbackEnabled: !!user?.ai_fallback_enabled });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
-app.put('/api/autoreply/settings', authenticateToken, express.json(), (req, res) => {
-  aiFallbackEnabled = !!req.body.aiFallbackEnabled;
-  res.json({ success: true, aiFallbackEnabled });
+app.put('/api/autoreply/settings', authenticateToken, express.json(), async (req, res) => {
+  if (!supabase) return res.status(500).json({ error: "DB not configured" });
+  try {
+    const aiFallbackEnabled = !!req.body.aiFallbackEnabled;
+    await supabase.from('users').update({ ai_fallback_enabled: aiFallbackEnabled }).eq('id', req.user.id);
+    res.json({ success: true, aiFallbackEnabled });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // --- Webhook APIs ---
@@ -1376,9 +1404,25 @@ app.post('/api/webhook/facebook', async (req, res) => {
           const receivedText = webhookEvent.message.text.toLowerCase();
           console.log(`Received message from ${senderPsid}: ${receivedText}`);
 
+          // Fetch tenant rules from DB
+          let tenantRules = [];
+          let tenantFallback = false;
+          let pageAccessToken = null;
+          let geminiKey = process.env.GEMINI_API_KEY;
+
+          if (supabase) {
+            const { data: user } = await supabase.from('users').select('auto_reply_rules, ai_fallback_enabled, facebook_access_token, gemini_api_key').eq('facebook_page_id', entry.id).single();
+            if (user) {
+              tenantRules = user.auto_reply_rules || [];
+              tenantFallback = !!user.ai_fallback_enabled;
+              if (user.facebook_access_token) pageAccessToken = user.facebook_access_token;
+              if (user.gemini_api_key) geminiKey = user.gemini_api_key;
+            }
+          }
+
           // 1. First check Rule Engine
           let replyMessage = null;
-          for (const rule of autoReplyRules) {
+          for (const rule of tenantRules) {
             // Check if rule applies to facebook or both
             const rulePlatform = rule.platform ? rule.platform.toLowerCase() : 'both';
             if (rulePlatform === 'facebook' || rulePlatform === 'both') {
@@ -1391,18 +1435,8 @@ app.post('/api/webhook/facebook', async (req, res) => {
           }
 
           // 2. If no rule matched, fallback to Gemini AI (if enabled)
-          if (!replyMessage && aiFallbackEnabled) {
+          if (!replyMessage && tenantFallback) {
             try {
-              let geminiKey = process.env.GEMINI_API_KEY;
-              
-              // Lookup user by page ID
-              if (supabase) {
-                const { data: user } = await supabase.from('users').select('gemini_api_key').eq('facebook_page_id', entry.id).single();
-                if (user && user.gemini_api_key) {
-                  geminiKey = user.gemini_api_key;
-                }
-              }
-
               if (geminiKey) {
                 const genAI = new GoogleGenerativeAI(geminiKey);
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -1424,14 +1458,8 @@ app.post('/api/webhook/facebook', async (req, res) => {
 
           if (replyMessage) {
             console.log(`Sending reply: ${replyMessage}`);
-            // Also need the page access token for sending the message
-            let pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-            if (supabase) {
-              const { data: user } = await supabase.from('users').select('facebook_access_token').eq('facebook_page_id', entry.id).single();
-              if (user && user.facebook_access_token) {
-                pageAccessToken = user.facebook_access_token;
-              }
-            }
+            if (!pageAccessToken) pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+            
             if (pageAccessToken) {
               await axios.post(`https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`, {
                 recipient: { id: senderPsid },
@@ -1452,9 +1480,25 @@ app.post('/api/webhook/facebook', async (req, res) => {
              const commentId = change.value.comment_id;
              console.log(`Received comment: ${commentText}`);
              
+             // Fetch tenant rules from DB
+             let tenantRules = [];
+             let tenantFallback = false;
+             let pageAccessToken = null;
+             let geminiKey = process.env.GEMINI_API_KEY;
+
+             if (supabase) {
+               const { data: user } = await supabase.from('users').select('auto_reply_rules, ai_fallback_enabled, facebook_access_token, gemini_api_key').eq('facebook_page_id', entry.id).single();
+               if (user) {
+                 tenantRules = user.auto_reply_rules || [];
+                 tenantFallback = !!user.ai_fallback_enabled;
+                 if (user.facebook_access_token) pageAccessToken = user.facebook_access_token;
+                 if (user.gemini_api_key) geminiKey = user.gemini_api_key;
+               }
+             }
+
              // 1. Check Rule Engine
              let replyMessage = null;
-             for (const rule of autoReplyRules) {
+             for (const rule of tenantRules) {
                const rulePlatform = rule.platform ? rule.platform.toLowerCase() : 'both';
                if (rulePlatform === 'facebook' || rulePlatform === 'both') {
                  if (commentText.includes(rule.trigger.toLowerCase())) {
@@ -1466,13 +1510,8 @@ app.post('/api/webhook/facebook', async (req, res) => {
              }
              
              // 2. Gemini AI Fallback
-             if (!replyMessage && aiFallbackEnabled) {
+             if (!replyMessage && tenantFallback) {
                try {
-                 let geminiKey = process.env.GEMINI_API_KEY;
-                 if (supabase) {
-                   const { data: user } = await supabase.from('users').select('gemini_api_key').eq('facebook_page_id', entry.id).single();
-                   if (user && user.gemini_api_key) geminiKey = user.gemini_api_key;
-                 }
                  if (geminiKey) {
                    const genAI = new GoogleGenerativeAI(geminiKey);
                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -1488,11 +1527,8 @@ app.post('/api/webhook/facebook', async (req, res) => {
              
              // 3. Post Reply via Graph API
              if (replyMessage) {
-               let pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
-               if (supabase) {
-                 const { data: user } = await supabase.from('users').select('facebook_access_token').eq('facebook_page_id', entry.id).single();
-                 if (user && user.facebook_access_token) pageAccessToken = user.facebook_access_token;
-               }
+               if (!pageAccessToken) pageAccessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+               
                if (pageAccessToken) {
                  await axios.post(`https://graph.facebook.com/v19.0/${commentId}/comments?access_token=${pageAccessToken}`, {
                    message: replyMessage
