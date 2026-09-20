@@ -1484,12 +1484,7 @@ app.use((err, req, res, next) => {
   res.status(500).send('Something broke!');
 });
 
-// Serve frontend in production
-app.use(express.static(path.join(__dirname, '../dist')));
-
-app.get(/.*/, (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
+  // (Moved static serving to bottom)
 
 // --- AI Campaign Routes ---
 
@@ -1594,6 +1589,14 @@ app.post('/api/campaign/reel', async (req, res) => {
     console.error("Campaign Reel Error:", error.message);
     res.status(500).json({ success: false, error: 'Failed to generate reel script' });
   }
+});
+
+// Serve frontend in production
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// SPA Catch-all (must be the last route)
+app.get(/.*/, (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 // START SERVER
