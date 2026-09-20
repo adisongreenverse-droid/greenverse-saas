@@ -1,0 +1,5 @@
+https://greenverse-marketing.onrender.com/ for auto secdular time
+https://supabase.com/dashboard/project/vodsgsjhuxiibrjggbxc/editor/17579?schema=public  Database ke liye
+https://console.cron-job.org/dashboard server backup ke liye
+
+https://dash.cloudflare.com/9892e2c08d77d3d744b1d6172b20a754/ai/workers-ai/api-quick-start image generate
