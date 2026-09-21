@@ -254,8 +254,8 @@ const PostCreator = () => {
       unixTimestamp = Math.floor(scheduledDate.getTime() / 1000);
       const nowUnix = Math.floor(now.getTime() / 1000);
       
-      if (unixTimestamp < nowUnix + 600) {
-        setStatus({ type: 'error', message: 'Schedule time must be at least 10 minutes in the future.' });
+      if (unixTimestamp < nowUnix + 180) {
+        setStatus({ type: 'error', message: 'Schedule time must be at least 3 minutes in the future.' });
         return;
       }
       if (unixTimestamp > nowUnix + (75 * 24 * 60 * 60)) {
@@ -642,7 +642,7 @@ const PostCreator = () => {
                 style={{ width: '100%', colorScheme: 'dark' }}
               />
               <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '8px' }}>
-                Note: Must be at least 10 minutes in the future.
+                Note: Must be at least 3 minutes in the future.
               </small>
             </div>
           )}
