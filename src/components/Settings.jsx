@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../config/api';
 const Settings = () => {
   const [geminiKey, setGeminiKey] = useState('');
   const [cloudflareToken, setCloudflareToken] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
   const [businessName, setBusinessName] = useState(localStorage.getItem('businessName') || 'Greenverse');
   const [businessSubtitle, setBusinessSubtitle] = useState(localStorage.getItem('businessSubtitle') || 'Adison DTF');
   const [ownerName, setOwnerName] = useState(localStorage.getItem('ownerName') || 'Adison');
@@ -24,6 +25,7 @@ const Settings = () => {
         if (data.success && data.keys) {
           setGeminiKey(data.keys.gemini_api_key || '');
           setCloudflareToken(data.keys.cloudflare_api_token || '');
+          setWhatsappNumber(data.keys.whatsapp_number || '');
         }
       } catch (e) {
         console.error("Failed to fetch keys", e);
@@ -82,7 +84,8 @@ const Settings = () => {
         },
         body: JSON.stringify({ 
           gemini_api_key: geminiKey,
-          cloudflare_api_token: cloudflareToken
+          cloudflare_api_token: cloudflareToken,
+          whatsapp_number: whatsappNumber
         })
       });
       if (res.ok) {
@@ -208,12 +211,29 @@ const Settings = () => {
             />
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Required for AI Image Generation</p>
           </div>
+
+          <div style={{ marginBottom: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ color: '#25D366' }}>WhatsApp</span> Notification Number
+            </label>
+            <input 
+              type="text" 
+              className="input-glass" 
+              placeholder="e.g. 919876543210 (include country code)" 
+              value={whatsappNumber}
+              onChange={(e) => setWhatsappNumber(e.target.value)}
+            />
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              We will send you a WhatsApp message when your scheduled posts are successfully published.<br/>
+              <em>Note: Please send a 'Hello' message to our WhatsApp bot number first to open the 24-hour service window, otherwise notifications may fail.</em>
+            </p>
+          </div>
           
           <button 
             className="btn btn-primary" 
             style={{ marginTop: '8px' }}
             onClick={handleUpdateKeys}
-          >Save API Keys</button>
+          >Save API Keys & Notifications</button>
         </div>
       </div>
 

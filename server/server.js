@@ -386,6 +386,44 @@ const validatePageToken = async (accessToken, expectedPageId) => {
 
 
 // The actual posting execution logic
+async function sendWhatsAppNotification(phone, messageText) {
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.WHATSAPP_TOKEN;
+  
+  if (!phoneId || !token || !phone) {
+    console.log("WhatsApp credentials or phone number missing, skipping notification.");
+    return false;
+  }
+  
+  // Format phone number (remove +, spaces, hyphens)
+  const formattedPhone = phone.replace(/\D/g, '');
+  
+  try {
+    const payload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: formattedPhone,
+      type: "text",
+      text: {
+        preview_url: false,
+        body: messageText
+      }
+    };
+    
+    await axios.post(`https://graph.facebook.com/v19.0/${phoneId}/messages`, payload, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    console.log(`WhatsApp notification sent successfully to ${formattedPhone}`);
+    return true;
+  } catch (error) {
+    console.error(`WhatsApp Notification Error for ${formattedPhone}:`, error.response?.data || error.message);
+    return false;
+  }
+}
+
 async function executePost(postRecord) {
   const message = postRecord.message;
   const postType = postRecord.postType || postRecord.posttype;
@@ -1102,11 +1140,12 @@ app.get('/api/connections/status', authenticateToken, async (req, res) => {
 app.get('/api/settings/keys', authenticateToken, async (req, res) => {
   if (!supabase) return res.json({ success: true, keys: {} });
   try {
-    const { data: user, error } = await supabase.from('users').select('gemini_api_key, cloudflare_api_token').eq('id', req.user.id).single();
+    const { data: user, error } = await supabase.from('users').select('gemini_api_key, cloudflare_api_token, business_profile').eq('id', req.user.id).single();
     if (error) throw error;
     res.json({ success: true, keys: {
       gemini_api_key: user.gemini_api_key || '',
-      cloudflare_api_token: user.cloudflare_api_token || ''
+      cloudflare_api_token: user.cloudflare_api_token || '',
+      whatsapp_number: user.business_profile?.phone || ''
     }});
   } catch (err) {
     res.status(500).json({ success: false, error: "Failed to fetch keys" });
@@ -1114,13 +1153,20 @@ app.get('/api/settings/keys', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/settings/keys', authenticateToken, express.json(), async (req, res) => {
-  const { gemini_api_key, cloudflare_api_token } = req.body;
-  if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
+    const { gemini_api_key, cloudflare_api_token, whatsapp_number } = req.body;
+    if (!supabase) return res.status(500).json({ error: "Supabase not configured" });
 
-  try {
-    const updateData = {};
-    if (gemini_api_key !== undefined) updateData.gemini_api_key = gemini_api_key;
-    if (cloudflare_api_token !== undefined) updateData.cloudflare_api_token = cloudflare_api_token;
+    try {
+      const updateData = {};
+      if (gemini_api_key !== undefined) updateData.gemini_api_key = gemini_api_key;
+      if (cloudflare_api_token !== undefined) updateData.cloudflare_api_token = cloudflare_api_token;
+      
+      if (whatsapp_number !== undefined) {
+        const { data: currentUser } = await supabase.from('users').select('business_profile').eq('id', req.user.id).single();
+        const currentProfile = currentUser?.business_profile || {};
+        currentProfile.phone = whatsapp_number;
+        updateData.business_profile = currentProfile;
+      }
     
     const { error } = await supabase.from('users').update(updateData).eq('id', req.user.id);
     if (error) throw error;
@@ -2017,6 +2063,15 @@ cron.schedule('* * * * *', async () => {
         results: results,
         post_id: post.id
       });
+      
+      // WhatsApp Notification
+      const { data: postUser } = await supabase.from('users').select('business_profile').eq('id', post.user_id).single();
+      const userPhone = postUser?.business_profile?.phone;
+      if (userPhone) {
+        const platformNames = post.platforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' & ');
+        const waMessage = `✅ Hello! Your scheduled post for *${platformNames}* is now LIVE!\n\nMessage: "${post.message.substring(0, 50)}${post.message.length > 50 ? '...' : ''}"`;
+        await sendWhatsAppNotification(userPhone, waMessage);
+      }
     }
   } catch (err) {
     console.error("Cron Job Error:", err);
