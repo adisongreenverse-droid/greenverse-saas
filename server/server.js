@@ -1528,6 +1528,95 @@ app.get('/api/ads/metrics', authenticateToken, async (req, res) => {
   }
 });
 
+// AUTO-BOOST POST ENDPOINT
+app.post('/api/ads/boost', authenticateToken, async (req, res) => {
+  const { fb_post_id, budget_inr } = req.body;
+  if (!fb_post_id || !budget_inr) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  let adAccountId = null;
+  let accessToken = null;
+  let pageId = null;
+
+  if (supabase) {
+    const { data: user } = await supabase.from('users').select('ad_account_id, facebook_access_token, facebook_page_id').eq('id', req.user.id).single();
+    if (user && user.ad_account_id) {
+      adAccountId = user.ad_account_id;
+      accessToken = user.facebook_access_token;
+      pageId = user.facebook_page_id;
+    }
+  }
+
+  if (!accessToken) {
+    accessToken = process.env.FACEBOOK_PAGE_ACCESS_TOKEN;
+    pageId = process.env.FACEBOOK_PAGE_ID;
+  }
+
+  if (!adAccountId || !accessToken || !pageId) {
+    return res.status(400).json({ error: "Facebook Ad Account not configured in Settings." });
+  }
+
+  try {
+    const actId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`;
+    const budgetPaise = Math.round(budget_inr * 100); // Facebook requires budget in minor units (paise)
+
+    // 1. Create Campaign
+    const campaignRes = await axios.post(`https://graph.facebook.com/v19.0/${actId}/campaigns`, {
+      name: `Auto Boost Campaign - ${fb_post_id}`,
+      objective: 'OUTCOME_ENGAGEMENT',
+      status: 'PAUSED',
+      special_ad_categories: ['NONE'],
+      access_token: accessToken
+    });
+    const campaignId = campaignRes.data.id;
+
+    // 2. Create Ad Set
+    const adSetRes = await axios.post(`https://graph.facebook.com/v19.0/${actId}/adsets`, {
+      name: `Auto Boost Ad Set - ${fb_post_id}`,
+      campaign_id: campaignId,
+      daily_budget: budgetPaise,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'POST_ENGAGEMENT',
+      bid_amount: 100,
+      targeting: { geo_locations: { countries: ['IN'] } }, // Default targeting to India
+      status: 'ACTIVE',
+      access_token: accessToken
+    });
+    const adSetId = adSetRes.data.id;
+
+    // 3. Create Ad Creative
+    const objectStoryId = fb_post_id.includes('_') ? fb_post_id : `${pageId}_${fb_post_id}`;
+    const creativeRes = await axios.post(`https://graph.facebook.com/v19.0/${actId}/adcreatives`, {
+      name: `Creative - ${fb_post_id}`,
+      object_story_id: objectStoryId,
+      access_token: accessToken
+    });
+    const creativeId = creativeRes.data.id;
+
+    // 4. Create Ad
+    const adRes = await axios.post(`https://graph.facebook.com/v19.0/${actId}/ads`, {
+      name: `Auto Boost Ad - ${fb_post_id}`,
+      adset_id: adSetId,
+      creative: { creative_id: creativeId },
+      status: 'ACTIVE',
+      access_token: accessToken
+    });
+
+    // 5. Activate Campaign
+    await axios.post(`https://graph.facebook.com/v19.0/${campaignId}`, {
+      status: 'ACTIVE',
+      access_token: accessToken
+    });
+
+    res.json({ success: true, campaign_id: campaignId, ad_id: adRes.data.id });
+  } catch (error) {
+    console.error("Ads Boost Error:", error.response?.data || error.message);
+    const msg = error.response?.data?.error?.message || error.message;
+    res.status(500).json({ error: `Failed to boost post: ${msg}` });
+  }
+});
+
 app.post('/api/ads/generate', async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {

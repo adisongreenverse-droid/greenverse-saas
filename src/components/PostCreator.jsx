@@ -19,6 +19,10 @@ const PostCreator = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [status, setStatus] = useState({ type: '', message: '', isLoading: false });
+
+  // Auto-Boost State
+  const [isAutoBoostEnabled, setIsAutoBoostEnabled] = useState(false);
+  const [boostBudget, setBoostBudget] = useState(500);
   const fileInputRef = useRef(null);
 
   // Scheduling State
@@ -303,26 +307,42 @@ const PostCreator = () => {
       if (response.ok && result.success) {
         let msg = '';
         if (result.results) {
-          const successes = [];
-          const failures = [];
-          
-          if (result.results.facebook) {
-            result.results.facebook.forEach(r => r.success ? successes.push('Facebook') : failures.push(`FB: ${r.error}`));
-          }
-          if (result.results.instagram) {
-            result.results.instagram.forEach(r => r.success ? successes.push('Instagram') : failures.push(`IG: ${r.error}`));
-          }
-          
-          if (failures.length > 0) {
-            msg = `Partial Success. Posted on: ${successes.join(', ') || 'None'}. Failed: ${failures.join(', ')}`;
-            setStatus({ type: successes.length ? 'info' : 'error', message: msg, isLoading: false });
-          } else {
-            msg = `Success! Post published to: ${successes.join(', ')}.`;
-            setStatus({ type: 'success', message: msg, isLoading: false });
+          const fb = result.results.facebook?.some(r => r.success);
+          const ig = result.results.instagram?.some(r => r.success);
+          const platformsStr = [fb ? 'Facebook' : '', ig ? 'Instagram' : ''].filter(Boolean).join(', ');
+          msg = `Post published to: ${platformsStr}.`;
+
+          // Handle Auto-Boost
+          if (isAutoBoostEnabled && fb && !isScheduled) {
+            const fbPost = result.results.facebook.find(r => r.success && r.data?.id);
+            if (fbPost) {
+              try {
+                setStatus({ type: 'info', message: 'Post published. Auto-boosting...', isLoading: true });
+                const boostRes = await fetch(`${API_BASE_URL}/api/ads/boost`, {
+                  method: 'POST',
+                  headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  },
+                  body: JSON.stringify({ fb_post_id: fbPost.data.id, budget_inr: boostBudget })
+                });
+                const boostData = await boostRes.json();
+                if (boostData.success) {
+                  msg += ' Auto-Boost Campaign Created (Pending Facebook Approval)!';
+                } else {
+                  msg += ` Auto-Boost Failed: ${boostData.error}`;
+                }
+              } catch (e) {
+                msg += ' Auto-Boost Failed to connect.';
+              }
+            }
           }
         } else {
-           setStatus({ type: 'success', message: `Success! Post published to selected platforms.`, isLoading: false });
+           msg = `Success! Post published to selected platforms.`;
         }
+        
+        setStatus({ type: 'success', message: msg, isLoading: false });
+        setTimeout(() => setStatus({ type: '', message: '', isLoading: false }), 4000);
         
         setCaption('');
         setSelectedFile(null);
@@ -651,6 +671,40 @@ const PostCreator = () => {
               <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '8px' }}>
                 Note: Must be at least 3 minutes in the future.
               </small>
+            </div>
+          )}
+
+          {!isScheduled && platforms.facebook && (
+            <div style={{ marginBottom: '24px', borderTop: '1px solid var(--border-glass)', paddingTop: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <input 
+                  type="checkbox" 
+                  id="autoBoost"
+                  checked={isAutoBoostEnabled}
+                  onChange={(e) => setIsAutoBoostEnabled(e.target.checked)}
+                  style={{ accentColor: 'var(--accent-primary)', width: '16px', height: '16px' }}
+                />
+                <label htmlFor="autoBoost" style={{ fontWeight: '500', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  🚀 Auto-Boost this Facebook Post
+                </label>
+              </div>
+              {isAutoBoostEnabled && (
+                <div style={{ paddingLeft: '24px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Daily Budget (₹)</label>
+                  <input 
+                    type="number" 
+                    className="input-glass"
+                    value={boostBudget}
+                    onChange={(e) => setBoostBudget(Number(e.target.value))}
+                    min="100"
+                    step="100"
+                    style={{ width: '100%', maxWidth: '200px' }}
+                  />
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                    A new campaign will be automatically created via Facebook Marketing API using your configured Ad Account.
+                  </p>
+                </div>
+              )}
             </div>
           )}
           
