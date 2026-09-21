@@ -359,7 +359,24 @@ const validatePageToken = async (accessToken, expectedPageId) => {
 
 // The actual posting execution logic
 async function executePost(postRecord) {
-  const { message, posttype: postType, platforms, image_url, scheduled_publish_time, user_id } = postRecord;
+  const message = postRecord.message;
+  const postType = postRecord.postType || postRecord.posttype;
+  const image_url = postRecord.image_url;
+  const scheduled_publish_time = postRecord.scheduled_publish_time;
+  const user_id = postRecord.user_id;
+  
+  let platforms = postRecord.platforms || [];
+  if (typeof platforms === 'string') {
+    try {
+      platforms = JSON.parse(platforms);
+    } catch(e) {
+      if (platforms.includes('facebook') && platforms.includes('instagram')) platforms = ['facebook', 'instagram'];
+      else if (platforms.includes('facebook')) platforms = ['facebook'];
+      else if (platforms.includes('instagram')) platforms = ['instagram'];
+      else platforms = [];
+    }
+  }
+
   let pageId = null;
   let accessToken = null;
   let pageName = 'Unknown Page';
@@ -450,10 +467,22 @@ async function executePost(postRecord) {
           };
           const mediaRes = await axios.post(`https://graph.facebook.com/v19.0/${igAccountId}/media`, igMediaPayload);
           const creationId = mediaRes.data.id;
-          const publishRes = await axios.post(`https://graph.facebook.com/v19.0/${igAccountId}/media_publish`, {
-            creation_id: creationId,
-            access_token: config.token
-          });
+          
+          let publishRes;
+          try {
+            publishRes = await axios.post(`https://graph.facebook.com/v19.0/${igAccountId}/media_publish`, {
+              creation_id: creationId,
+              access_token: config.token
+            });
+          } catch(err) {
+            // If container not ready, wait and retry
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            publishRes = await axios.post(`https://graph.facebook.com/v19.0/${igAccountId}/media_publish`, {
+              creation_id: creationId,
+              access_token: config.token
+            });
+          }
+          
           results.instagram.push({ name: config.name, success: true, id: publishRes.data.id });
         } else if (postType === 'video' && tempFilePath) {
           const igMediaPayload = {
