@@ -22,6 +22,30 @@ app.use(express.static(path.join(__dirname, '../dist')));
 
 const upload = multer({ dest: path.join(__dirname, 'uploads/') });
 
+// SSE Clients for Notifications
+let sseClients = [];
+
+const broadcastNotification = (data) => {
+  sseClients.forEach(client => {
+    client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+  });
+};
+
+app.get('/api/notifications/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const clientId = Date.now();
+  const newClient = { id: clientId, res };
+  sseClients.push(newClient);
+
+  req.on('close', () => {
+    sseClients = sseClients.filter(c => c.id !== clientId);
+  });
+});
+
 // Supabase Setup
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -400,6 +424,41 @@ async function executePost(postRecord) {
   let isMockMode = false;
   let validation = { valid: false };
 
+  // AYRSHARE INTEGRATION
+  const ayrshareApiKey = process.env.AYRSHARE_API_KEY;
+  if (ayrshareApiKey) {
+    let results = { instagram: [], facebook: [] };
+    try {
+      const ayrsharePayload = {
+        post: message || '',
+        platforms: platforms.map(p => p.toLowerCase()),
+      };
+      
+      if (image_url && image_url.startsWith('http')) {
+        ayrsharePayload.mediaUrls = [image_url];
+      }
+
+      const ayrRes = await axios.post('https://app.ayrshare.com/api/post', ayrsharePayload, {
+        headers: {
+          'Authorization': `Bearer ${ayrshareApiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (ayrRes.data.status === 'success') {
+        if (platforms.includes('instagram')) results.instagram.push({ success: true, id: ayrRes.data.id });
+        if (platforms.includes('facebook')) results.facebook.push({ success: true, id: ayrRes.data.id });
+      }
+      return results;
+    } catch (err) {
+      console.error("Ayrshare Post Error:", err.response?.data || err.message);
+      if (platforms.includes('instagram')) results.instagram.push({ success: false, error: 'Ayrshare API failed' });
+      if (platforms.includes('facebook')) results.facebook.push({ success: false, error: 'Ayrshare API failed' });
+      return results;
+    }
+  }
+
+  // FALLBACK TO NATIVE API
   if (!pageId || !accessToken) {
     isMockMode = true;
   } else {
@@ -1944,8 +2003,16 @@ cron.schedule('* * * * *', async () => {
     
     for (const post of pendingPosts) {
       console.log(`Running scheduled post: ${post.id}`);
-      await executePost(post);
+      const results = await executePost(post);
       await supabase.from('posts').update({ status: 'published' }).eq('id', post.id);
+      
+      // Notify Frontend
+      broadcastNotification({
+        type: 'post_success',
+        message: `Scheduled post completed for ${post.platforms.join(' & ')}!`,
+        results: results,
+        post_id: post.id
+      });
     }
   } catch (err) {
     console.error("Cron Job Error:", err);

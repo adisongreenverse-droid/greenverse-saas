@@ -11,6 +11,7 @@ import AdsManager from './components/AdsManager'
 import Settings from './components/Settings'
 import MockupStudio from './components/MockupStudio'
 import DashboardHighlights from './components/DashboardHighlights'
+import ToastNotification, { showToast } from './components/ToastNotification'
 import { LayoutDashboard, Calendar, Sparkles, PenTool, Link2, BarChart3, Bot, TrendingUp, DollarSign, Settings as SettingsIcon, Image as ImageIcon } from 'lucide-react'
 import { API_BASE_URL } from './config/api'
 
@@ -72,6 +73,26 @@ function App() {
     setIsAuthenticated(true)
     fetchDashboardData(token)
   }
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    // Set up Server-Sent Events (SSE) listener for notifications
+    const sse = new EventSource(`${API_BASE_URL}/api/notifications/stream`);
+    
+    sse.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'post_success') {
+          showToast(data.message, 'success');
+        } else if (data.type === 'post_error') {
+          showToast(data.message || 'Post failed', 'error');
+        }
+      } catch(e) {}
+    };
+
+    return () => sse.close();
+  }, [isAuthenticated]);
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -234,6 +255,7 @@ function App() {
       <main className="main-content">
         {renderContent()}
       </main>
+      <ToastNotification />
     </div>
   )
 }
