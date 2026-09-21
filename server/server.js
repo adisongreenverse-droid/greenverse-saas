@@ -468,7 +468,7 @@ async function executePost(postRecord) {
 
   // AYRSHARE INTEGRATION
   const ayrshareApiKey = process.env.AYRSHARE_API_KEY;
-  if (ayrshareApiKey) {
+  if (ayrshareApiKey && postType !== 'video') {
     let results = { instagram: [], facebook: [] };
     try {
       const ayrsharePayload = {
@@ -642,23 +642,38 @@ async function executePost(postRecord) {
             published: true
           });
         } else if (postType === 'video' && tempFilePath) {
-          // WORKAROUND: Instead of using the strict 'video_reels' endpoint which causes mobile visibility issues 
-          // for unverified apps, we use the standard 'videos' endpoint. Vertical videos under 90s are 
-          // automatically formatted similarly in the feed without the extreme API restrictions.
-          const FormData = require('form-data');
-          const form = new FormData();
-          form.append('access_token', config.token);
-          form.append('description', message || '');
+          const fileSize = require('fs').statSync(tempFilePath).size;
           
-          if (publicMediaUrl && publicMediaUrl.startsWith('http')) {
-            form.append('file_url', publicMediaUrl);
-          } else {
-            form.append('source', fs.createReadStream(tempFilePath));
-          }
-
-          fbRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/videos`, form, {
-            headers: { ...form.getHeaders() }
+          // Phase 1: Initialize
+          const initRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
+            upload_phase: 'start',
+            access_token: config.token
           });
+          const videoId = initRes.data.video_id;
+
+          // Phase 2: Upload
+          const fileBuffer = require('fs').readFileSync(tempFilePath);
+          await axios.post(`https://rupload.facebook.com/video-upload/v19.0/${videoId}`, fileBuffer, {
+            headers: {
+              'Authorization': `OAuth ${config.token}`,
+              'offset': '0',
+              'file_size': fileSize.toString(),
+              'Content-Type': 'application/octet-stream'
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity
+          });
+
+          // Phase 3: Finish and Publish
+          const publishRes = await axios.post(`https://graph.facebook.com/v19.0/${config.id}/video_reels`, {
+            upload_phase: 'finish',
+            video_id: videoId,
+            video_state: 'PUBLISHED',
+            description: message || '',
+            access_token: config.token
+          });
+          
+          fbRes = publishRes;
         }
         if (fbRes) results.facebook.push({ name: config.name, success: true, data: fbRes.data });
       } catch (err) {
