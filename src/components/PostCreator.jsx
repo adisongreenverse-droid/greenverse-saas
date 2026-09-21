@@ -292,7 +292,13 @@ const PostCreator = () => {
         body: formData,
       });
 
-      const result = await response.json();
+      let result;
+      try {
+        result = await response.json();
+      } catch (parseErr) {
+        const textResp = await response.text().catch(() => '');
+        throw new Error(`Server returned non-JSON response (Status: ${response.status}). Body: ${textResp.substring(0, 100)}`);
+      }
 
       if (response.ok && result.success) {
         let msg = '';
@@ -327,7 +333,8 @@ const PostCreator = () => {
         setStatus({ type: 'error', message: result.error || 'Failed to post', isLoading: false });
       }
     } catch (error) {
-      setStatus({ type: 'error', message: 'Cannot connect to backend server. Is it running?', isLoading: false });
+      console.error("Posting Error:", error);
+      setStatus({ type: 'error', message: `Backend error: ${error.message}`, isLoading: false });
     }
   };
 
