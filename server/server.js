@@ -494,7 +494,7 @@ async function executePost(postRecord) {
       return results;
     } catch (err) {
       console.error("Ayrshare Post Error:", err.response?.data || err.message);
-      const errorMsg = err.response?.data?.message || err.message || 'Ayrshare API failed';
+      const errorMsg = err.response?.data?.errors?.[0]?.message || err.response?.data?.message || err.message || 'Ayrshare API failed';
       if (platforms.includes('instagram')) results.instagram.push({ success: false, error: errorMsg });
       if (platforms.includes('facebook')) results.facebook.push({ success: false, error: errorMsg });
       return results;
