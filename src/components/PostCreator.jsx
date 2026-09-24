@@ -59,7 +59,13 @@ const PostCreator = () => {
         },
         body: JSON.stringify({ prompt: imagePrompt })
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        const textResp = await response.text().catch(() => '');
+        throw new Error(`Server returned non-JSON response (Status: ${response.status}). Body: ${textResp.substring(0, 100)}`);
+      }
       
       if (data.success) {
         const res2 = await fetch(data.image);
@@ -75,7 +81,7 @@ const PostCreator = () => {
       }
     } catch (err) {
       console.error(err);
-      setStatus({ type: 'error', message: 'Could not connect to AI service.', isLoading: false });
+      setStatus({ type: 'error', message: `Could not connect to AI service: ${err.message}`, isLoading: false });
     }
     
     setIsGeneratingImage(false);
@@ -101,7 +107,13 @@ const PostCreator = () => {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
         body: formData
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        const textResp = await response.text().catch(() => '');
+        throw new Error(`Server returned non-JSON response (Status: ${response.status}). Body: ${textResp.substring(0, 100)}`);
+      }
       
       if (data.success) {
         setCaption(data.caption);
@@ -114,7 +126,8 @@ const PostCreator = () => {
         setStatus({ type: 'error', message: data.error || 'Failed to generate AI content.', isLoading: false });
       }
     } catch (err) {
-      setStatus({ type: 'error', message: 'Could not connect to AI service.', isLoading: false });
+      console.error(err);
+      setStatus({ type: 'error', message: `Could not connect to AI service: ${err.message}`, isLoading: false });
     }
     
     setIsGenerating(false);

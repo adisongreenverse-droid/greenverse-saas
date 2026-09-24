@@ -63,10 +63,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'greenverse_secret_key_123';
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-  if (token == null) return res.sendStatus(401);
+  if (token == null) return res.status(401).json({ success: false, error: 'Unauthorized: No token provided' });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) return res.status(403).json({ success: false, error: 'Forbidden: Invalid or expired token' });
     req.user = user;
     next();
   });
@@ -759,11 +759,9 @@ app.post('/api/generate', authenticateToken, upload.single('image'), async (req,
 
     if (!geminiKey) {
       if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      // Fallback mock response so the UI doesn't break
-      return res.json({
-        success: true,
-        caption: "Elevate your style with our latest collection! 🌟 Perfect for any occasion. What do you think of this look? Let us know below! 👇",
-        hashtags: "#Fashion #OOTD #GreenverseAdison #TrendingStyle #NewLook"
+      return res.status(400).json({
+        success: false,
+        error: "Gemini API key is not configured. Please add GEMINI_API_KEY to your environment variables or user profile."
       });
     }
 
@@ -809,11 +807,9 @@ app.post('/api/generate', authenticateToken, upload.single('image'), async (req,
     console.error("AI Generation Error:", error);
     if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     
-    // Fallback mock response so the UI doesn't break if API key is invalid
-    res.json({
-      success: true,
-      caption: "Elevate your style with our latest collection! 🌟 Perfect for any occasion. What do you think of this look? Let us know below! 👇",
-      hashtags: "#Fashion #OOTD #GreenverseAdison #TrendingStyle #NewLook"
+    res.status(500).json({
+      success: false,
+      error: `AI Generation failed. Please check if your Gemini API key is valid. Details: ${error.message}`
     });
   }
 });
